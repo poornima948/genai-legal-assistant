@@ -2,7 +2,4 @@ streamlit
 PyPDF2
 python-docx
 langdetect
-spacy
-openai
-spacy
-en_core_web_sm
+
