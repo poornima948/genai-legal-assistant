@@ -49,14 +49,16 @@ def read_file(file):
 # ---------------- CLAUSE SPLITTER ----------------
 def split_into_clauses(text):
     """
-    Deployment-safe semantic clause splitter.
-    Groups sentences based on legal intent.
+    Improved clause splitter for English + Hindi.
+    Handles long unstructured legal text.
     """
 
+    # Normalize whitespace
     text = text.replace("\r", " ").replace("\n", " ")
     text = " ".join(text.split())
 
-    sentences = re.split(r'(?<=[.!?])\s+', text)
+    # Split on English + Hindi sentence markers
+    sentences = re.split(r'(?<=[.!?।])\s+', text)
 
     clauses = []
     buffer = ""
@@ -69,10 +71,14 @@ def split_into_clauses(text):
         "penalty", "fine",
         "arbitration", "jurisdiction",
         "renew", "auto",
-        "non-compete", "confidential",
-        # Hindi
-        "करेगा", "करेगी", "कर सकता",
-        "समाप्त", "क्षतिपूर्ति", "दंड", "मध्यस्थता"
+        "confidential", "non-compete",
+
+        # Hindi (key legal verbs & nouns)
+        "नियुक्त", "वेतन", "समाप्त",
+        "क्षतिपूर्ति", "दंड",
+        "गोपनीय", "मध्यस्थता",
+        "अधिकार क्षेत्र", "नवीनीकरण",
+        "प्रतिस्पर्धा", "उल्लंघन"
     ]
 
     def has_legal_intent(sentence):
@@ -82,7 +88,7 @@ def split_into_clauses(text):
     for sent in sentences:
         sent = sent.strip()
 
-        if len(sent) < 40:
+        if len(sent) < 30:
             continue
 
         if has_legal_intent(sent):
@@ -97,6 +103,7 @@ def split_into_clauses(text):
         clauses.append(buffer.strip())
 
     return clauses if clauses else [text]
+
 
 # ---------------- CLAUSE CLASSIFICATION ----------------
 def classify_clause(text):
