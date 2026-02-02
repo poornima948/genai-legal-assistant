@@ -3,6 +3,12 @@ from PyPDF2 import PdfReader
 import docx
 from langdetect import detect
 import re
+import spacy
+
+try:
+    nlp = spacy.load("en_core_web_sm")
+except:
+    nlp = spacy.blank("en")
 
 
 
@@ -47,9 +53,70 @@ def read_file(file):
 
 # ---------------- HELPERS ----------------
 def split_into_clauses(text):
-    pattern = r"(?:^|\n)(?:clause\s+\d+|\d+\.)[\s\S]*?(?=\n(?:clause\s+\d+|\d+\.)|$)"
-    clauses = re.findall(pattern, text, re.IGNORECASE)
-    return [c.strip() for c in clauses] if clauses else [text]
+    """
+    Advanced semantic clause splitter.
+    Groups sentences based on legal intent instead of formatting.
+    """
+
+    # Normalize text
+    text = text.replace("\r", " ").replace("\n", " ")
+    text = " ".join(text.split())
+
+    doc = nlp(text)
+
+    clauses = []
+    buffer = []
+
+    # Legal intent keywords (English + Hindi)
+    legal_triggers = {
+        "obligation": ["shall", "must", "will", "करेगा", "करेगी"],
+        "right": ["may", "entitled", "सकता", "सकती"],
+        "prohibition": ["shall not", "must not", "नहीं करेगा", "निषेध"],
+        "risk": [
+            "terminate", "termination",
+            "indemnify", "indemnity",
+            "penalty", "fine", "damages",
+            "arbitration", "jurisdiction",
+            "renew", "auto-renew", "lock-in",
+            "क्षतिपूर्ति", "दंड", "मध्यस्थता"
+        ]
+    }
+
+    def is_legal_sentence(sent):
+        sent_lower = sent.text.lower()
+        for group in legal_triggers.values():
+            if any(k in sent_lower for k in group):
+                return True
+        return False
+
+    for sent in doc.sents:
+        sent_text = sent.text.strip()
+
+        # Ignore very short / non-legal sentences
+        if len(sent_text) < 40:
+            continue
+
+        if is_legal_sentence(sent):
+            # Start a new clause
+            if buffer:
+                clauses.append(" ".join(buffer).strip())
+                buffer = []
+            buffer.append(sent_text)
+        else:
+            # Supporting sentence → attach to current clause
+            if buffer:
+                buffer.append(sent_text)
+
+    if buffer:
+        clauses.append(" ".join(buffer).strip())
+
+    # Final fallback
+    if not clauses:
+        clauses = [text]
+
+    return clauses
+
+
 
 def classify_clause(text):
     t = text.lower()
