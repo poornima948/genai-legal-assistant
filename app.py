@@ -2,10 +2,9 @@ import streamlit as st
 from PyPDF2 import PdfReader
 import docx
 from langdetect import detect
-from googletrans import Translator
 import re
 
-translator = Translator()
+
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(page_title="GenAI Legal Assistant", layout="wide")
@@ -99,11 +98,7 @@ if uploaded_file is not None:
     except:
         lang = "unknown"
 
-    normalized_text = (
-        translator.translate(original_text, src="hi", dest="en").text
-        if lang == "hi"
-        else original_text
-    )
+    normalized_text = original_text
 
     t = normalized_text.lower()
     if "employee" in t or "salary" in t:
@@ -144,6 +139,8 @@ if uploaded_file is not None:
 
     with col1:
         st.success("🌐 " + ("Hindi" if lang == "hi" else "English"))
+        if lang == "hi":
+         st.info("Hindi contract detected. Analysis performed on original text.")
     with col2:
         st.info("📑 " + contract_type)
     with col3:

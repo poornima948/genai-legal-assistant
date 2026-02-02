@@ -2,6 +2,5 @@ streamlit
 PyPDF2
 python-docx
 langdetect
-googletrans==4.0.0-rc1
 spacy
 openai
