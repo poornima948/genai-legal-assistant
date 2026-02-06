@@ -3,26 +3,26 @@ from PyPDF2 import PdfReader
 import docx
 from langdetect import detect
 import re
+import json
+from datetime import datetime
 
-# ---------------- PAGE CONFIG ----------------
+# ================= PAGE CONFIG =================
 st.set_page_config(page_title="GenAI Legal Assistant", layout="wide")
 
-# ---------------- SIDEBAR ----------------
+# ================= SIDEBAR =================
 st.sidebar.title("⚖️ Legal AI Assistant")
-st.sidebar.markdown(
-    """
-    **For Small & Medium Businesses**
+st.sidebar.markdown("""
+**For Small & Medium Businesses**
 
-    Upload a contract to:
-    - Identify legal risks
-    - Understand clauses
-    - Get simple explanations
-    """
-)
+Upload a contract to:
+- Identify legal risks
+- Understand clauses
+- Get simple explanations
+""")
 st.sidebar.markdown("---")
-st.sidebar.info("Supports PDF, DOCX, TXT\n\n🇮🇳 English & Hindi")
+st.sidebar.info("Supports PDF, DOCX, TXT\n🇮🇳 English & Hindi")
 
-# ---------------- MAIN UI ----------------
+# ================= MAIN UI =================
 st.title("GenAI Legal Assistant for SMEs")
 st.write("Upload a contract file (PDF, DOCX, or TXT)")
 
@@ -31,81 +31,47 @@ uploaded_file = st.file_uploader(
     type=["pdf", "docx", "txt"]
 )
 
-# ---------------- FILE READER ----------------
+# ================= FILE READER =================
 def read_file(file):
     if file.name.endswith(".pdf"):
         reader = PdfReader(file)
         return "".join(page.extract_text() or "" for page in reader.pages)
-
     elif file.name.endswith(".docx"):
         doc = docx.Document(file)
         return "\n".join(p.text for p in doc.paragraphs)
-
     elif file.name.endswith(".txt"):
         return file.read().decode("utf-8")
-
     return ""
 
-# ---------------- CLAUSE SPLITTER ----------------
+# ================= CLAUSE SPLITTER =================
 def split_into_clauses(text):
-    """
-    Improved clause splitter for English + Hindi.
-    Handles long unstructured legal text.
-    """
-
-    # Normalize whitespace
     text = text.replace("\r", " ").replace("\n", " ")
     text = " ".join(text.split())
-
-    # Split on English + Hindi sentence markers
     sentences = re.split(r'(?<=[.!?।])\s+', text)
 
-    clauses = []
-    buffer = ""
-
-    legal_triggers = [
-        # English
-        "shall", "must", "may", "will",
-        "terminate", "termination",
-        "indemnify", "indemnity",
-        "penalty", "fine",
-        "arbitration", "jurisdiction",
-        "renew", "auto",
-        "confidential", "non-compete",
-
-        # Hindi (key legal verbs & nouns)
-        "नियुक्त", "वेतन", "समाप्त",
-        "क्षतिपूर्ति", "दंड",
-        "गोपनीय", "मध्यस्थता",
-        "अधिकार क्षेत्र", "नवीनीकरण",
-        "प्रतिस्पर्धा", "उल्लंघन"
+    clauses, buffer = [], ""
+    triggers = [
+        "shall","must","may","terminate","indemnify","penalty",
+        "arbitration","jurisdiction","renew","confidential",
+        "non-compete","वेतन","समाप्त","क्षतिपूर्ति","दंड","मध्यस्थता"
     ]
 
-    def has_legal_intent(sentence):
-        s = sentence.lower()
-        return any(k in s for k in legal_triggers)
-
     for sent in sentences:
-        sent = sent.strip()
-
         if len(sent) < 30:
             continue
-
-        if has_legal_intent(sent):
+        if any(k in sent.lower() for k in triggers):
             if buffer:
                 clauses.append(buffer.strip())
             buffer = sent
         else:
-            if buffer:
-                buffer += " " + sent
+            buffer += " " + sent
 
     if buffer.strip():
         clauses.append(buffer.strip())
 
     return clauses if clauses else [text]
 
-
-# ---------------- CLAUSE CLASSIFICATION ----------------
+# ================= NLP HELPERS =================
 def classify_clause(text):
     t = text.lower()
     if "shall not" in t or "must not" in t:
@@ -116,11 +82,9 @@ def classify_clause(text):
         return "Right"
     return "General"
 
-# ---------------- RISK DETECTION ----------------
 def detect_risks(text):
     t = text.lower()
     risks = []
-
     if "penalty" in t or "fine" in t:
         risks.append("Penalty clause may impose financial burden.")
     if "indemnify" in t:
@@ -130,37 +94,81 @@ def detect_risks(text):
     if "terminate without notice" in t or "sole discretion" in t:
         risks.append("Unilateral termination favors one party.")
     if "arbitration" in t or "jurisdiction" in t:
-        risks.append("Arbitration or jurisdiction clause may increase legal cost.")
+        risks.append("Arbitration or jurisdiction may increase legal cost.")
     if "auto" in t and "renew" in t:
         risks.append("Auto-renewal may lock parties into agreement.")
-
     return risks
 
 def score_clause(risks):
     if not risks:
         return "Low"
-    elif len(risks) == 1:
-        return "Medium"
-    return "High"
+    return "Medium" if len(risks) == 1 else "High"
 
 def explain_clause(risks):
     if not risks:
         return "This clause appears standard and low risk."
     return "This clause may be risky because: " + " ".join(risks)
 
-# ---------------- MAIN LOGIC ----------------
-if uploaded_file is not None:
+def detect_ambiguity(text):
+    ambiguous = [
+        "reasonable","as required","from time to time",
+        "at discretion","as deemed fit","as applicable"
+    ]
+    return [a for a in ambiguous if a in text.lower()]
 
-    original_text = read_file(uploaded_file)
+def mitigation_advice(risks):
+    advice = []
+    for r in risks:
+        if "termination" in r.lower():
+            advice.append("Add mutual notice period for termination.")
+        if "non-compete" in r.lower():
+            advice.append("Limit non-compete scope and duration.")
+        if "indemnity" in r.lower():
+            advice.append("Cap indemnity liability to a reasonable amount.")
+        if "auto-renew" in r.lower():
+            advice.append("Add opt-out clause before renewal.")
+    return advice
+
+def extract_entities(text):
+    return {
+        "Dates": re.findall(r'\b\d{1,2}\s+[A-Za-z]+\s+\d{4}\b', text),
+        "Amounts": re.findall(r'₹\s?\d+|INR\s?\d+', text),
+        "Jurisdiction": re.findall(
+            r'\b(India|Delhi|Mumbai|Bangalore|Chennai)\b', text, re.I
+        ),
+        "Parties": re.findall(
+            r'\b[A-Z][a-z]+(?:\s[A-Z][a-z]+)+\b', text
+        )
+    }
+
+# ================= AUDIT LOG =================
+def log_audit(contract_type, overall_risk):
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "contract_type": contract_type,
+        "overall_risk": overall_risk
+    }
+    with open("audit_log.json", "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+# ================= TEMPLATES =================
+TEMPLATES = {
+    "Employment Agreement": "Balanced employment agreement with mutual termination notice and limited non-compete.",
+    "Vendor Contract": "Vendor agreement with capped indemnity and clear payment terms.",
+    "Lease Agreement": "Lease with fixed lock-in and explicit renewal consent.",
+    "Service Contract": "Service contract defining deliverables and liability caps."
+}
+
+# ================= MAIN LOGIC =================
+if uploaded_file:
+    text = read_file(uploaded_file)
 
     try:
-        lang = detect(original_text)
+        lang = detect(text)
     except:
         lang = "unknown"
 
-    normalized_text = original_text
-
-    t = normalized_text.lower()
+    t = text.lower()
     if "employee" in t or "salary" in t:
         contract_type = "Employment Agreement"
     elif "lease" in t or "rent" in t:
@@ -172,23 +180,20 @@ if uploaded_file is not None:
     else:
         contract_type = "Service Contract"
 
-    clauses = split_into_clauses(normalized_text)
+    clauses = split_into_clauses(text)
 
-    # -------- ANALYZE CLAUSES --------
+    clause_data = []
     high_risk_count = 0
-    clause_results = []
 
     for clause in clauses:
         risks = detect_risks(clause)
         risk_level = score_clause(risks)
-        clause_type = classify_clause(clause)
-
         if risk_level == "High":
             high_risk_count += 1
+        clause_data.append(
+            (clause, classify_clause(clause), risks, risk_level)
+        )
 
-        clause_results.append((clause, clause_type, risks, risk_level))
-
-    # -------- OVERALL RISK --------
     if high_risk_count >= 3:
         overall_risk = "HIGH RISK"
     elif high_risk_count >= 1:
@@ -196,20 +201,16 @@ if uploaded_file is not None:
     else:
         overall_risk = "LOW RISK"
 
-    # -------- OVERVIEW --------
-    st.markdown("## Contract Overview")
-    col1, col2, col3 = st.columns(3)
+    log_audit(contract_type, overall_risk)
 
-    with col1:
-        lang_label = "Hindi" if lang == "hi" else "English" if lang == "en" else "Unknown"
-        st.success(f"{lang_label}")
-        if lang == "hi":
-            st.info("Hindi contract detected. Analysis performed on original text.")
+    # ---------- OVERVIEW ----------
+    st.markdown("## 📄 Contract Overview")
+    c1, c2, c3 = st.columns(3)
 
-    with col2:
-        st.info(f" {contract_type}")
+    c1.success("Hindi" if lang == "hi" else "English")
+    c2.info(contract_type)
 
-    with col3:
+    with c3:
         if overall_risk == "HIGH RISK":
             st.error("HIGH RISK")
         elif overall_risk == "MEDIUM RISK":
@@ -217,21 +218,62 @@ if uploaded_file is not None:
         else:
             st.success("LOW RISK")
 
-    # -------- CLAUSE ANALYSIS --------
-    st.markdown("## Clause-by-Clause Analysis")
+    # ---------- ENTITIES ----------
+    st.markdown("## 🏷️ Extracted Entities")
+    for k, v in extract_entities(text).items():
+        st.write(f"**{k}:** {', '.join(set(v)) if v else 'Not found'}")
 
-    for i, (clause, clause_type, risks, risk_level) in enumerate(clause_results, start=1):
+    # ---------- CLAUSE ANALYSIS ----------
+    st.markdown("## 🔍 Clause-by-Clause Analysis")
+    for i, (c, ct, r, s) in enumerate(clause_data, start=1):
         with st.expander(f"Clause {i}"):
-            st.write(clause)
-            st.write(f"**Clause Type:** {clause_type}")
-            st.write(f"**Risk Level:** {risk_level}")
-            st.write(f"**Explanation:** {explain_clause(risks)}")
+            st.write(c)
+            st.write(f"**Clause Type:** {ct}")
+            st.write(f"**Risk Level:** {s}")
+            st.write(f"**Explanation:** {explain_clause(r)}")
 
-    # -------- SUMMARY --------
-    st.markdown("## Overall Contract Risk Summary")
-    st.write(f"**Overall Risk Level:** {overall_risk}")
-    st.write(f"**Total Clauses Analyzed:** {len(clauses)}")
-    st.write(f"**High-Risk Clauses:** {high_risk_count}")
+            amb = detect_ambiguity(c)
+            if amb:
+                st.warning(f"Ambiguous terms detected: {', '.join(amb)}")
 
-    st.markdown("---")
-    st.caption("⚖️ This tool provides informational insights only and does not constitute legal advice.")
+            advice = mitigation_advice(r)
+            if advice:
+                st.write("**Suggested Mitigation:**")
+                for a in advice:
+                    st.write(f"- {a}")
+
+    # ---------- PLAIN-LANGUAGE SUMMARY ----------
+    st.markdown("## 🧾 Plain-Language Contract Summary")
+
+    summary_lines = [
+        f"This is a **{contract_type}**.",
+        f"The overall legal risk of this contract is **{overall_risk}**.",
+        f"A total of **{len(clauses)} clauses** were analyzed."
+    ]
+
+    if high_risk_count > 0:
+        summary_lines.append(
+            f"There are **{high_risk_count} high-risk clauses** that may require renegotiation."
+        )
+    else:
+        summary_lines.append(
+            "No high-risk clauses were detected. The contract appears relatively safe."
+        )
+
+    for line in summary_lines:
+        st.write("- " + line)
+
+    # ---------- TEMPLATE ----------
+    st.markdown("## 📑 SME-Friendly Contract Template")
+    st.info(TEMPLATES.get(contract_type, "Template not available"))
+
+    # ---------- DOWNLOAD ----------
+    report_text = "\n".join(summary_lines)
+    st.download_button(
+        "📄 Download Contract Risk Summary",
+        data=report_text,
+        file_name="contract_risk_summary.txt",
+        mime="text/plain"
+    )
+
+    st.caption("⚖️ Informational tool only. Not legal advice.")
